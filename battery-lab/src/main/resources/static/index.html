@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电池协议实验室</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>电池协议实验室</h1>
+  <div class="sub">虚拟时钟 · 测点确认 · 周期复核（数据单位：mV / mA / 0.1℃ / ms）</div>
+</header>
+
+<main>
+  <section class="panel" id="control-panel">
+    <div class="panel-title">运行</div>
+    <div class="row">
+      <label>设备序号
+        <input id="device-serial" value="DEV-0001" size="9">
+      </label>
+      <button id="btn-create">创建运行</button>
+      <button id="btn-refresh">刷新</button>
+      <span id="run-picker-wrap">
+        <select id="run-picker"></select>
+      </span>
+    </div>
+    <div class="row">
+      <button id="btn-tick">推进 5 分钟</button>
+      <button id="btn-tick-big">推进 1 小时</button>
+      <button id="btn-pause">暂停</button>
+      <button id="btn-resume">恢复</button>
+      <button id="btn-cancel" class="warn">取消</button>
+      <button id="btn-fault" class="warn">注入设备故障</button>
+    </div>
+    <div class="row">
+      <button id="btn-offline">注入掉线</button>
+      <button id="btn-online">重连</button>
+      <button id="btn-lostack">下次确认丢应答</button>
+      <span id="tick-result" class="mono"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">协议图 / 当前步骤</div>
+    <div id="protocol-graph" class="graph"></div>
+    <div id="run-status" class="mono"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">周期复核与派生版本</div>
+    <div class="row">
+      <button id="btn-derive">按当前规则派生新版本</button>
+      <select id="rule-picker"></select>
+      <input id="derive-reason" placeholder="派生原因（可选）" size="22">
+    </div>
+    <div class="row">
+      <input id="ex-from" type="number" placeholder="排除起 ts" size="12">
+      <input id="ex-to" type="number" placeholder="排除止 ts" size="12">
+      <input id="ex-reason" placeholder="传感器故障说明" size="18">
+      <button id="btn-exclude">排除故障区间</button>
+      <input id="bd-cycle" type="number" placeholder="周期号" size="6">
+      <input id="bd-ts" type="number" placeholder="分界测点 ts" size="14">
+      <button id="btn-boundary">修正周期分界</button>
+    </div>
+    <div id="conflicts"></div>
+    <div id="derived"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">原始测点（只追加，永不就地改写）</div>
+    <div class="row">
+      <input id="sample-json" placeholder='直接上报 JSON, 如 {"seq":1,"tsMs":60000,"voltageMv":3310,"currentMa":2000,"temperatureCd":350,"direction":1}' size="90">
+      <button id="btn-send-sample">上报</button>
+    </div>
+    <div class="table-wrap">
+      <table id="points-table">
+        <thead><tr>
+          <th>seq</th><th>ts(ms)</th><th>电压mV</th><th>电流mA</th><th>温度0.1℃</th>
+          <th>方向</th><th>迟到</th><th>修正</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
