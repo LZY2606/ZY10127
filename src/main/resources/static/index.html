@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电池协议实验室</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    body { margin: 0; background: #f6f7fb; color: #172033; }
+    header { padding: 22px 28px; background: #14213d; color: white; }
+    header h1 { margin: 0 0 6px; font-size: 24px; }
+    header p { margin: 0; color: #c9d5e8; }
+    main { display: grid; grid-template-columns: 330px 1fr; gap: 18px; padding: 18px 28px 32px; }
+    .card { background: white; border: 1px solid #e3e7f0; border-radius: 14px; padding: 16px; box-shadow: 0 6px 20px rgba(18,38,63,.06); }
+    .card h2 { font-size: 16px; margin: 0 0 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 8px; padding: 8px 11px; background: #2457d6; color: white; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #526070; }
+    button.danger { background: #b3261e; }
+    button.warning { background: #b26a00; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input, select { padding: 8px; border: 1px solid #cbd2de; border-radius: 8px; min-width: 0; }
+    .muted { color: #667085; font-size: 13px; }
+    .state { display: inline-block; padding: 3px 9px; border-radius: 999px; background: #e8eefc; color: #174ea6; font-weight: 700; }
+    .state.terminal { background: #fde7e5; color: #8c1d18; }
+    .graph { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+    .node { min-width: 92px; border: 2px solid #d4d9e5; border-radius: 10px; padding: 9px; text-align: center; font-size: 12px; background: #fafbff; }
+    .node.active { border-color: #2457d6; background: #eaf0ff; font-weight: 800; }
+    .arrow { align-self: center; color: #7a8498; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 7px 8px; border-bottom: 1px solid #edf0f5; text-align: right; }
+    th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+    th { color: #596579; background: #f8fafc; position: sticky; top: 0; }
+    .table-wrap { max-height: 360px; overflow: auto; border: 1px solid #edf0f5; border-radius: 10px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .pill { padding: 2px 7px; border-radius: 999px; background: #ecfdf3; color: #027a48; }
+    .pill.pending { background: #fffaeb; color: #b54708; }
+    .pill.late, .pill.review { background: #fef3f2; color: #b42318; }
+    .timeline { position: relative; min-height: 58px; border-left: 3px solid #2457d6; margin-left: 10px; padding: 4px 0 4px 14px; }
+    .tick { position: relative; margin: 6px 0; font-size: 12px; }
+    .tick:before { content: ""; position: absolute; left: -21px; top: 2px; width: 9px; height: 9px; border-radius: 50%; background: #2457d6; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0b1f33; color: #d7e7ff; padding: 10px; border-radius: 10px; max-height: 240px; overflow: auto; }
+    .metric { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+    .metric div { background: #f8fafc; padding: 10px; border-radius: 10px; }
+    .metric b { display: block; font-size: 18px; margin-top: 3px; }
+    @media (max-width: 980px) { main, .grid2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>电池协议实验室</h1>
+  <p>可控虚拟时钟 · 两阶段测点确认 · 不可变派生版本 · SQLite 持久化</p>
+</header>
+<main>
+  <section class="card">
+    <h2>运行控制</h2>
+    <div class="row" style="margin-bottom:10px">
+      <select id="ruleVersion"></select>
+      <button onclick="createRun()">新建运行</button>
+    </div>
+    <div id="runMeta" class="muted">尚未选择运行。</div>
+    <hr style="border:0;border-top:1px solid #edf0f5;margin:14px 0">
+    <div class="row" id="controls">
+      <button onclick="advance()">推进并上报</button>
+      <button onclick="confirmPending()">确认写入</button>
+      <button class="warning" onclick="post('pause')">暂停</button>
+      <button class="secondary" onclick="post('resume')">继续</button>
+      <button class="secondary" onclick="post('device/offline')">掉线</button>
+      <button class="secondary" onclick="post('device/online')">重连</button>
+      <button class="secondary" onclick="post('device/restart')">设备重启</button>
+      <button class="danger" onclick="post('device/fault')">设备故障</button>
+      <button class="danger" onclick="post('cancel')">取消</button>
+      <button class="secondary" onclick="load()">刷新</button>
+    </div>
+    <p class="muted">崩溃窗口演练：推进后、点击“确认写入”前点“掉线”，重连后仍可确认同一个 PENDING 测点，不会重复计数。</p>
+    <hr style="border:0;border-top:1px solid #edf0f5;margin:14px 0">
+    <h2>研究员复核</h2>
+    <div class="row">
+      <input id="boundaryCycle" type="number" placeholder="周期" style="width:70px">
+      <input id="boundaryAt" type="number" placeholder="边界 t(ms)" style="width:110px">
+      <button onclick="correctBoundary()">修正分界</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="excludeStart" type="number" placeholder="排除起" style="width:95px">
+      <input id="excludeEnd" type="number" placeholder="排除止" style="width:95px">
+      <button onclick="exclude()">排除故障段</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="recomputeRule"></select>
+      <button onclick="recompute()">按规则重算</button>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:18px;min-width:0">
+    <div class="card">
+      <h2>协议图与当前步骤</h2>
+      <div id="graph" class="graph"></div>
+      <div id="timeline" class="timeline"></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>最新派生周期</h2>
+        <div id="latestResult"></div>
+      </div>
+      <div class="card">
+        <h2>派生版本</h2>
+        <div id="derivations"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>原始测点</h2>
+      <div class="table-wrap"><table id="samples"></table></div>
+    </div>
+    <div class="card">
+      <h2>调试快照</h2>
+      <pre id="raw"></pre>
+    </div>
+  </section>
+</main>
+<script>
+let runs = [];
+let current = null;
+let rules = [];
+const api = (path, options) => fetch('/api' + path, options).then(async r => {
+  const text = await r.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!r.ok) throw new Error(body.error || r.statusText);
+  return body;
+});
+async function init() {
+  const versions = await api('/versions');
+  rules = versions.rules;
+  for (const select of [document.getElementById('ruleVersion'), document.getElementById('recomputeRule')]) {
+    select.innerHTML = rules.map(r => `<option value="${r.version}">${r.version} · ${r.name}</option>`).join('');
+  }
+  document.getElementById('ruleVersion').value = 'rules/v2';
+  runs = await api('/runs');
+  if (runs.length) await selectRun(runs[0].id);
+}
+async function createRun() {
+  const run = await api('/runs', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ruleVersion: document.getElementById('ruleVersion').value})});
+  await selectRun(run.id);
+}
+async function selectRun(id) { await load(id); }
+async function load(id) {
+  if (id) history.replaceState(null, '', '#' + id);
+  const runId = id || location.hash.slice(1) || runs[0]?.id;
+  if (!runId) return;
+  current = await api('/runs/' + runId);
+  runs = await api('/runs');
+  render();
+}
+async function post(suffix) { await api(`/runs/${current.id}/${suffix}`, {method:'POST'}); await load(); }
+async function advance() { await api(`/runs/${current.id}/simulator/advance`, {method:'POST'}); await load(); }
+async function confirmPending() {
+  const pending = current.samples.find(s => s.status === 'PENDING');
+  if (!pending) return alert('没有待确认测点');
+  await api(`/runs/${current.id}/samples/${pending.sequence_number}/confirm`, {method:'POST'});
+  await load();
+}
+async function correctBoundary() {
+  await api(`/runs/${current.id}/boundaries/${boundaryCycle.value}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({boundaryAtMs: Number(boundaryAt.value), reason:'研究员人工复核'})}); await load();
+}
+async function exclude() {
+  await api(`/runs/${current.id}/exclusions`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({startAtMs: Number(excludeStart.value), endAtMs: Number(excludeEnd.value), reason:'传感器故障'})}); await load();
+}
+async function recompute() {
+  await api(`/runs/${current.id}/recompute`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ruleVersion: document.getElementById('recomputeRule').value})}); await load();
+}
+function render() {
+  document.getElementById('runMeta').innerHTML = `<div class="row"><span class="state ${['COMPLETED','CANCELLED','DEVICE_FAULT','CONFLICT'].includes(current.state) ? 'terminal':''}">${current.state}</span><b>${current.device_sn}</b></div><p>周期 ${current.current_cycle}/${current.cycle_limit} · 虚拟时钟 ${current.virtual_time_ms} ms · 中断原因 ${current.interruption_reason}</p><p class="muted">运行 ${current.id}</p>`;
+  const protocol = JSON.parse(current.protocol_json);
+  document.getElementById('graph').innerHTML = protocol.steps.map((s, i) => `<div class="node ${i===current.current_step_index && current.state==='RUNNING'?'active':''}">${s.index}<br><b>${s.name}</b><br>${s.type}</div>${i < protocol.steps.length-1?'<span class="arrow">→</span>':''}`).join('');
+  document.getElementById('timeline').innerHTML = current.events.slice().reverse().map(e => `<div class="tick">t=${e.at_ms}ms · ${e.event_type} · step ${e.from_step_index}→${e.to_step_index} · cycle ${e.from_cycle}→${e.to_cycle}${e.reason ? ' · '+e.reason : ''}</div>`).join('');
+  document.getElementById('samples').innerHTML = '<thead><tr><th>序号</th><th>状态</th><th>t(ms)</th><th>V</th><th>A</th><th>°C</th><th>确认时刻</th></tr></thead><tbody>' + current.samples.map(s => `<tr><td>${s.sequence_number}</td><td><span class="pill ${s.status.toLowerCase()}">${s.status}</span></td><td>${s.sampled_at_ms}</td><td>${s.voltage_v}</td><td>${s.current_a}</td><td>${s.temperature_c}</td><td>${s.confirmed_at_ms ?? ''}</td></tr>`).join('') + '</tbody>';
+  const derivations = current.derivations;
+  document.getElementById('derivations').innerHTML = derivations.map(d => `<div style="padding:8px 0;border-bottom:1px solid #edf0f5">v${d.version_number} · ${d.source} · ${d.rule_version} ${d.needs_review?'<span class="pill review">需复核</span>':''}<br><span class="muted">${d.review_reason||''}</span></div>`).join('') || '<p class="muted">尚无派生版本。</p>';
+  const latest = derivations.at(-1);
+  document.getElementById('latestResult').innerHTML = latest ? `<p>${latest.rule_version} · 边界 ${JSON.parse(latest.boundaries_json).join(', ')} ms</p>` + latest.cycles.map(c => `<div class="metric"><div>周期<b>#${c.cycle_index}</b></div><div>充电 Ah<b>${c.charge_ah}</b></div><div>放电 Ah<b>${c.discharge_ah}</b></div><div>CE<b>${c.coulombic_efficiency ?? '—'}</b></div><div>样本<b>${c.sample_count}</b></div><div>排除 ms<b>${c.excluded_ms}</b></div></div>`).join('') : '<p class="muted">周期边界确认后生成。</p>';
+  document.getElementById('raw').textContent = JSON.stringify({device: current.device, derivedBoundaries: current.derivedBoundaries, exclusions: current.exclusions, boundaryOverrides: current.boundaryOverrides}, null, 2);
+}
+window.addEventListener('hashchange', () => load());
+init().catch(err => alert(err.message));
+</script>
+</body>
+</html>
